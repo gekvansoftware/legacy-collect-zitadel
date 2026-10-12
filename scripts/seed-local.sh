@@ -46,8 +46,8 @@ APP_RESPONSE=$(curl -sf -H "Host: $ZITADEL_HOST" \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"LegacyCollect Web\",
-    \"redirectUris\": [\"http://localhost:5173/callback\"],
-    \"postLogoutRedirectUris\": [\"http://localhost:5173\"],
+    \"redirectUris\": [\"http://localhost:3000/callback\"],
+    \"postLogoutRedirectUris\": [\"http://localhost:3000\"],
     \"responseTypes\": [\"OIDC_RESPONSE_TYPE_CODE\"],
     \"grantTypes\": [\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\"],
     \"appType\": \"OIDC_APP_TYPE_USER_AGENT\",
@@ -64,26 +64,40 @@ echo "Created OIDC app with client_id: $CLIENT_ID"
 
 echo "$CLIENT_ID" > /zitadel/bootstrap/client_id
 
-echo "Configuring login policy (disable passkey, register, IDP)..."
+echo "Configuring login policy (allow register + ignore unknown usernames, disable passkey, IDP)..."
 curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
   -H "Authorization: Bearer $PAT" \
   -H "Content-Type: application/json" \
   -d '{
     "allowUsernamePassword": true,
-    "allowRegister": false,
+    "allowRegister": true,
     "allowExternalIdp": false,
     "forceMfa": false,
     "passwordlessType": "PASSWORDLESS_TYPE_NOT_ALLOWED",
     "hidePasswordReset": false,
     "forceMfaLocalOnly": false,
     "allowDomainDiscovery": false,
-    "ignoreUnknownUsernames": false,
+    "ignoreUnknownUsernames": true,
     "disableLoginWithEmail": false,
-    "disableLoginWithPhone": true
+    "disableLoginWithPhone": true,
+    "passwordCheckLifetime": "864000s",
+    "externalLoginCheckLifetime": "864000s",
+    "mfaInitSkipLifetime": "2592000s",
+    "secondFactorCheckLifetime": "64800s",
+    "multiFactorCheckLifetime": "43200s"
   }' \
   "$ZITADEL_URL/admin/v1/policies/login" >/dev/null
 
 echo "Login policy configured."
+
+echo "Disallowing public organization registration..."
+curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
+  -H "Authorization: Bearer $PAT" \
+  -H "Content-Type: application/json" \
+  -d '{"disallowPublicOrgRegistration": true}' \
+  "$ZITADEL_URL/admin/v1/restrictions" >/dev/null
+
+echo "Public organization registration disallowed."
 
 echo "Renaming default organization to 'Legacy'..."
 curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
