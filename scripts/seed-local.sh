@@ -72,7 +72,7 @@ curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
     "allowUsernamePassword": true,
     "allowRegister": false,
     "allowExternalIdp": false,
-    "forceMfa": true,
+    "forceMfa": false,
     "passwordlessType": "PASSWORDLESS_TYPE_NOT_ALLOWED",
     "hidePasswordReset": false,
     "forceMfaLocalOnly": false,
@@ -84,6 +84,15 @@ curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
   "$ZITADEL_URL/admin/v1/policies/login" >/dev/null
 
 echo "Login policy configured."
+
+echo "Renaming default organization to 'Legacy Collect'..."
+curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
+  -H "Authorization: Bearer $PAT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Legacy Collect"}' \
+  "$ZITADEL_URL/management/v1/orgs/me" >/dev/null
+
+echo "Default organization renamed to 'Legacy Collect'."
 
 #################################################################
 # Create test user

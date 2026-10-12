@@ -14,8 +14,9 @@ RUN pnpm install --frozen-lockfile
 # Generate proto files
 RUN cd packages/zitadel-proto && pnpm exec buf generate ../../proto
 
-# Build the client package (skip DTS to avoid issues)
-RUN cd packages/zitadel-client && npx tsup --no-dts
+# Build the client package (with type declarations so the login app's
+# type-check can resolve @zitadel/client's exports)
+RUN cd packages/zitadel-client && npx tsup
 
 # Build the login app
 RUN cd apps/login && NEXT_OUTPUT_MODE=standalone npx next build \
