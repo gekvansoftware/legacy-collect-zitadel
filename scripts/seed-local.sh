@@ -85,14 +85,14 @@ curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
 
 echo "Login policy configured."
 
-echo "Renaming default organization to 'Legacy Collect'..."
+echo "Renaming default organization to 'Legacy'..."
 curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
   -H "Authorization: Bearer $PAT" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Legacy Collect"}' \
+  -d '{"name":"Legacy"}' \
   "$ZITADEL_URL/management/v1/orgs/me" >/dev/null
 
-echo "Default organization renamed to 'Legacy Collect'."
+echo "Default organization renamed to 'Legacy'."
 
 #################################################################
 # Configure SMTP (route all outgoing mail to the local Mailpit)
