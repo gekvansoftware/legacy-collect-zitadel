@@ -95,6 +95,38 @@ curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
 echo "Default organization renamed to 'Legacy Collect'."
 
 #################################################################
+# Configure SMTP (route all outgoing mail to the local Mailpit)
+#################################################################
+
+echo "Configuring SMTP provider (Mailpit)..."
+SMTP_RESPONSE=$(curl -sf -H "Host: $ZITADEL_HOST" \
+  -H "Authorization: Bearer $PAT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "senderAddress": "noreply@localhost",
+    "senderName": "Legacy Collect",
+    "replyToAddress": "",
+    "tls": false,
+    "host": "mailpit-auth:1025",
+    "none": {}
+  }' \
+  "$ZITADEL_URL/admin/v1/email/smtp")
+
+SMTP_ID=$(echo "$SMTP_RESPONSE" | jq -r '.id')
+
+if [ -n "$SMTP_ID" ] && [ "$SMTP_ID" != "null" ]; then
+  echo "SMTP provider created: $SMTP_ID"
+  echo "Activating SMTP provider..."
+  curl -sf -X POST -H "Host: $ZITADEL_HOST" \
+    -H "Authorization: Bearer $PAT" \
+    -H "Content-Type: application/json" \
+    "$ZITADEL_URL/admin/v1/email/$SMTP_ID/_activate" >/dev/null
+  echo "SMTP provider activated. Mail routes to Mailpit (http://localhost:8026)."
+else
+  echo "WARN: could not create SMTP provider (one may already exist). Response: $SMTP_RESPONSE"
+fi
+
+#################################################################
 # Create test user
 #################################################################
 
