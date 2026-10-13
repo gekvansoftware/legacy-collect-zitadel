@@ -46,7 +46,7 @@ APP_RESPONSE=$(curl -sf -H "Host: $ZITADEL_HOST" \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"LegacyCollect Web\",
-    \"redirectUris\": [\"http://localhost:3000\", \"http://localhost:3000/callback\"],
+    \"redirectUris\": [\"http://localhost:3000/callback\"],
     \"postLogoutRedirectUris\": [\"http://localhost:3000\"],
     \"responseTypes\": [\"OIDC_RESPONSE_TYPE_CODE\"],
     \"grantTypes\": [\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\"],
@@ -84,7 +84,8 @@ curl -sf -X PUT -H "Host: $ZITADEL_HOST" \
     "externalLoginCheckLifetime": "864000s",
     "mfaInitSkipLifetime": "2592000s",
     "secondFactorCheckLifetime": "64800s",
-    "multiFactorCheckLifetime": "43200s"
+    "multiFactorCheckLifetime": "43200s",
+    "defaultRedirectUri": "http://localhost:3000"
   }' \
   "$ZITADEL_URL/admin/v1/policies/login" >/dev/null
 
