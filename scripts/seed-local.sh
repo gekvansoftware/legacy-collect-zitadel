@@ -46,7 +46,7 @@ APP_RESPONSE=$(curl -sf -H "Host: $ZITADEL_HOST" \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"LegacyCollect Web\",
-    \"redirectUris\": [\"http://localhost:3000/callback\"],
+    \"redirectUris\": [\"http://localhost:3000\", \"http://localhost:3000/callback\"],
     \"postLogoutRedirectUris\": [\"http://localhost:3000\"],
     \"responseTypes\": [\"OIDC_RESPONSE_TYPE_CODE\"],
     \"grantTypes\": [\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\"],
