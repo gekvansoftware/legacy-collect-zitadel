@@ -110,6 +110,7 @@ CLAUDE.md
 .windsurf/
 .copilot/
 .aider*
+.kiro/
 
 docs_old
 apps/docs/package-lock.json

@@ -1,0 +1,71 @@
+name: Auto Promote PR
+
+on:
+  pull_request:
+    branches: [develop, acc]
+    types:
+      - closed
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  AUTO_PR:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Determine promotion target
+        id: target
+        run: |
+          if [ "${{ github.base_ref }}" = "develop" ]; then
+            echo "head=develop" >> "$GITHUB_OUTPUT"
+            echo "base=acc" >> "$GITHUB_OUTPUT"
+            echo "label=acc" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.base_ref }}" = "acc" ]; then
+            echo "head=acc" >> "$GITHUB_OUTPUT"
+            echo "base=prod" >> "$GITHUB_OUTPUT"
+            echo "label=prod" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        uses: actions/github-script@v8
+        env:
+          SOURCE_BRANCH: ${{ steps.target.outputs.head }}
+          TARGET_BRANCH: ${{ steps.target.outputs.base }}
+          LABEL: ${{ steps.target.outputs.label }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        with:
+          script: |
+            const { SOURCE_BRANCH, TARGET_BRANCH, LABEL, PR_TITLE } = process.env;
+
+            // Check if an open PR already exists
+            const { data: existing } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${SOURCE_BRANCH}`,
+              base: TARGET_BRANCH,
+              state: 'open',
+            });
+
+            if (existing.length > 0) {
+              core.info(`PR already exists: #${existing[0].number} — updating title.`);
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: existing[0].number,
+                title: `DO NOT MERGE ${LABEL} (${PR_TITLE})`,
+              });
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: SOURCE_BRANCH,
+              base: TARGET_BRANCH,
+              title: `DO NOT MERGE ${LABEL} (${PR_TITLE})`,
+              body: `**Automated pull request<br>Two-Dot Compare URL: https://github.com/${context.repo.owner}/${context.repo.repo}/compare/${TARGET_BRANCH}..${SOURCE_BRANCH}**`,
+            });
+
+            core.info(`Created PR #${pr.number}`);

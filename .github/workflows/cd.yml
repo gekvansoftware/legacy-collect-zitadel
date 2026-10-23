@@ -1,0 +1,129 @@
+name: Deploy on PR merge
+
+on:
+  pull_request:
+    branches: [ prod, acc, develop ]
+    types:
+      - closed
+
+concurrency:
+  group: cd-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  ENVIRONMENT: ${{ github.base_ref == 'develop' && 'test' || github.base_ref == 'acc' && 'acc' || github.base_ref == 'prod' && 'prod' || '' }}
+  GITOPS_BRANCH: ${{ github.base_ref == 'develop' && 'test' || github.base_ref == 'acc' && 'acc' || github.base_ref == 'prod' && 'prod' || '' }}
+  SERVICE_NAME: ${{vars.SERVICE_NAME}}
+  IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  ECS_GITOPS_PATH: ${{ vars.ECS_GITOPS_PATH }}
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  DEPLOY:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate environment
+        if: env.ENVIRONMENT == ''
+        run: |
+          echo "::error::Unknown target branch '${{ github.base_ref }}' — cannot determine environment"
+          exit 1
+      - name: In progress message
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ENVIRONMENT_LABEL: ${{ github.base_ref == 'develop' && 'TEST' || github.base_ref == 'acc' && 'ACC' || github.base_ref == 'prod' && 'PROD' || '' }}
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: Number(process.env.PR_NUMBER),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `<b>${process.env.ENVIRONMENT_LABEL}</b> <br>Deployment started ...`,            });
+
+      - name: Initialize repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.GH_ACTIONS_APP_ID }}
+          private-key: ${{ secrets.GH_ACTIONS_PRIVATE_KEY }}
+          owner: ${{ secrets.GH_ACTIONS_OWNER }}
+          repositories: "legacy-ecs-gitops"
+
+      - name: Checkout DevOps Repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          repository: ${{ vars.ECS_GITOPS_REPO }}
+          token: ${{ steps.app-token.outputs.token }}
+          path: ecs-gitops
+          ref: ${{ env.GITOPS_BRANCH }}
+
+      - name: Configure Git
+        working-directory: ecs-gitops
+        run: |
+          git config --local user.email "automation@legacy.dev"
+          git config --local user.name "Legacy Deployment Automation"
+
+      - name: Update Version Tag in JSON
+        run: |
+          task ecs:tag-update
+
+      - name: Commit & Push changes
+        run: |
+          task ecs:commit
+
+      - name: Message success
+        if: ${{ success() }}
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ENVIRONMENT_LABEL: ${{ github.base_ref == 'develop' && 'TEST' || github.base_ref == 'acc' && 'ACC' || github.base_ref == 'prod' && 'PROD' || '' }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: Number(process.env.PR_NUMBER),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `<b>${process.env.ENVIRONMENT_LABEL}</b> Deployment succeeded! ✅ <br>Changes will be deployed to ECS momentarily! It may take up to 30 seconds. :coffee:<br>${process.env.RUN_URL}`,
+            });
+
+      - name: Message failure
+        if: ${{ failure() }}
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ENVIRONMENT_LABEL: ${{ github.base_ref == 'develop' && 'TEST' || github.base_ref == 'acc' && 'ACC' || github.base_ref == 'prod' && 'PROD' || '' }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: Number(process.env.PR_NUMBER),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `<b>${process.env.ENVIRONMENT_LABEL}</b> Deployment failed! ❌ <br>${process.env.RUN_URL}`,
+            });
