@@ -33,19 +33,6 @@ jobs:
     runs-on: ubuntu-24.04
     environment: test
     steps:
-      - name: In progress message
-        uses: actions/github-script@v8
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: Number(process.env.PR_NUMBER),
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `<b>TEST</b><br>Deployment started ...`,
-            });
-
       - name: Initialize repository
         uses: actions/checkout@v5
 
@@ -71,6 +58,21 @@ jobs:
             --image-ids imageTag="$IMAGE_TAG" \
             > /dev/null
           echo "Image $ECR_REPOSITORY_NAME:$IMAGE_TAG found, deploying to $ENVIRONMENT."
+
+      # Posted only after the image is confirmed, so a deploy that is about to
+      # hard-fail never announces itself as started.
+      - name: In progress message
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: Number(process.env.PR_NUMBER),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `<b>TEST</b><br>Deployment started ...`,
+            });
 
       # ECS_GITOPS_REPO is "owner/repo", but the app token's `repositories` input
       # takes bare repo names (the owner is passed separately).
