@@ -9,8 +9,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ECS_GITOPS_REPO: ${{ vars.ECS_GITOPS_REPO }}
-  SERVICE_NAME: ${{ vars.SERVICE_NAME }}
   ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
   IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
 
