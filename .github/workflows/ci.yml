@@ -9,7 +9,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ENVIRONMENT: ${{ github.base_ref == 'develop' && 'test' || github.base_ref == 'acc' && 'acc' || github.base_ref == 'master' && 'prod' || '' }}
   ECS_GITOPS_REPO: ${{ github.repository_owner }}/power-q-ecs-gitops
   SERVICE_NAME: zitadel
   ECR_REPOSITORY_NAME: ${{vars.ECR_REPOSITORY_NAME}}
@@ -24,11 +23,6 @@ jobs:
   BUILD:
     runs-on: ubuntu-24.04
     steps:
-      - name: Validate environment
-        if: env.ENVIRONMENT == ''
-        run: |
-          echo "::error::Unknown target branch '${{ github.base_ref }}' — cannot determine environment"
-          exit 1
       - name: Initialize repository
         uses: actions/checkout@v5
         with:
@@ -62,7 +56,6 @@ jobs:
       - name: Message success
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
-          ENVIRONMENT: ${{ env.ENVIRONMENT }}
           BRANCH: ${{ github.base_ref }}
           PR_NUMBER: ${{ github.event.number }}
         if: ${{ success() }}
@@ -73,7 +66,7 @@ jobs:
               issue_number: Number(process.env.PR_NUMBER),
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `Docker Image is Ready! 💿 (\`${ process.env.IMAGE_TAG}\`)<br>Image will be deployed to the \`${process.env.ENVIRONMENT}\` environment when pull request to branch \`${process.env.BRANCH}\` is approved and merged.`,
+              body: `Docker Image is Ready! 💿 (\`${ process.env.IMAGE_TAG}\`)<br>Image will be deployed to the test environment when pull request to branch \`${process.env.BRANCH}\` is approved and merged.`,
             });
 
       - name: Message failure
