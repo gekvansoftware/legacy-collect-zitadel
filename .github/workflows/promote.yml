@@ -18,14 +18,14 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Service folder in the gitops repo: configs/backend/vars/<env>.json.
-  SERVICE_NAME: backend
+  # Service folder in the gitops repo: configs/<SERVICE_NAME>/vars/<env>.json.
+  SERVICE_NAME: ${{ vars.SERVICE_NAME }}
   IMAGE_TAG: ${{ inputs.image_tag }}
   ENVIRONMENT: ${{ inputs.environment }}
   ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
   ECS_GITOPS_PATH: ecs-gitops
-  # Gitops repo in this org (owner = github.repository_owner).
-  ECS_GITOPS_REPO_NAME: ${{ vars.ECS_GITOPS_REPO }}
+  # Gitops repo as "owner/repo".
+  ECS_GITOPS_REPO: ${{ vars.ECS_GITOPS_REPO }}
 
 permissions:
   id-token: write
@@ -74,6 +74,12 @@ jobs:
             > /dev/null
           echo "Image $ECR_REPOSITORY_NAME:$IMAGE_TAG found, promoting to $ENVIRONMENT."
 
+      # ECS_GITOPS_REPO is "owner/repo", but the app token's `repositories`
+      # input takes bare repo names (the owner is passed separately).
+      - name: Resolve gitops repo name
+        id: gitops-repo
+        run: echo "name=${ECS_GITOPS_REPO#*/}" >> "$GITHUB_OUTPUT"
+
       - name: Create gitops app token
         uses: actions/create-github-app-token@v2
         id: app-token
@@ -81,12 +87,12 @@ jobs:
           app-id: ${{ secrets.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: ${{ env.ECS_GITOPS_REPO_NAME }}
+          repositories: ${{ steps.gitops-repo.outputs.name }}
 
       - name: Checkout gitops repo
         uses: actions/checkout@v5
         with:
-          repository: ${{ env.ECS_GITOPS_REPO_NAME }}
+          repository: ${{ env.ECS_GITOPS_REPO }}
           token: ${{ steps.app-token.outputs.token }}
           path: ecs-gitops
           ref: ${{ inputs.environment }}
