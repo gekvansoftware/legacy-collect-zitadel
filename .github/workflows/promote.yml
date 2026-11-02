@@ -7,7 +7,7 @@ on:
         description: "Target environment"
         required: true
         type: choice
-        options: [prod]
+        options: [test, prod]
       image_tag:
         description: "Image tag to promote (the full 40-char commit SHA CI built)"
         required: true
