@@ -12,7 +12,7 @@ env:
   ECS_GITOPS_REPO: ${{ github.repository_owner }}/power-q-ecs-gitops
   SERVICE_NAME: zitadel
   ECR_REPOSITORY_NAME: ${{vars.ECR_REPOSITORY_NAME}}
-  IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
 
 permissions:
   id-token: write
