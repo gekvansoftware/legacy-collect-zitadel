@@ -13,14 +13,14 @@ concurrency:
 env:
   ENVIRONMENT: test
   # Service folder in the gitops repo: configs/backend/vars/<env>.json.
-  SERVICE_NAME: backend
+  SERVICE_NAME: ${{ vars.SERVICE_NAME }}
   # Deploy the exact image CI built on this PR. ci.yml tags by the PR head SHA,
   # so reuse that tag rather than the merge commit (which has no image).
   IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
-  ECR_REPOSITORY_NAME: legacy-collect-backend
+  ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
   ECS_GITOPS_PATH: ecs-gitops
   # Gitops repo in this org (owner = github.repository_owner).
-  ECS_GITOPS_REPO_NAME: legacy-collect-ecs-gitops
+  ECS_GITOPS_REPO: ${{ vars.ECS_GITOPS_REPO }}
 
 permissions:
   id-token: write

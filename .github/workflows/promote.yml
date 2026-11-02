@@ -22,10 +22,10 @@ env:
   SERVICE_NAME: backend
   IMAGE_TAG: ${{ inputs.image_tag }}
   ENVIRONMENT: ${{ inputs.environment }}
-  ECR_REPOSITORY_NAME: legacy-collect-backend
+  ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
   ECS_GITOPS_PATH: ecs-gitops
   # Gitops repo in this org (owner = github.repository_owner).
-  ECS_GITOPS_REPO_NAME: legacy-collect-ecs-gitops
+  ECS_GITOPS_REPO_NAME: ${{ vars.ECS_GITOPS_REPO }}
 
 permissions:
   id-token: write
@@ -86,7 +86,7 @@ jobs:
       - name: Checkout gitops repo
         uses: actions/checkout@v5
         with:
-          repository: ${{ github.repository_owner }}/${{ env.ECS_GITOPS_REPO_NAME }}
+          repository: ${{ env.ECS_GITOPS_REPO_NAME }}
           token: ${{ steps.app-token.outputs.token }}
           path: ecs-gitops
           ref: ${{ inputs.environment }}

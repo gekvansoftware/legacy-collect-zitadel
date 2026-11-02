@@ -9,9 +9,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ECS_GITOPS_REPO: ${{ github.repository_owner }}/power-q-ecs-gitops
-  SERVICE_NAME: zitadel
-  ECR_REPOSITORY_NAME: ${{vars.ECR_REPOSITORY_NAME}}
+  ECS_GITOPS_REPO: ${{ vars.ECS_GITOPS_REPO }}
+  SERVICE_NAME: ${{ vars.SERVICE_NAME }}
+  ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
   IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
 
 permissions:
