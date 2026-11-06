@@ -1,0 +1,162 @@
+name: Deploy to test on main merge
+
+on:
+  pull_request:
+    branches: [main]
+    types:
+      - closed
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false
+
+env:
+  ENVIRONMENT: test
+  # Service folder in the gitops repo: configs/<SERVICE_NAME>/vars/<env>.json.
+  SERVICE_NAME: ${{ vars.SERVICE_NAME }}
+  # Deploy the exact image CI built on this PR. ci.yml tags by the PR head SHA,
+  # so reuse that tag rather than the merge commit (which has no image).
+  # CI builds the synthetic merge ref (head + main), not the bare PR branch.
+  # That equals the real merge result only because branch protection on main
+  # requires branches to be up to date before merging. Do not disable that rule
+  # (or merge with an admin bypass) without switching this to build-on-merge.
+  IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+  ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
+  ECS_GITOPS_PATH: ecs-gitops
+  # Gitops repo as "owner/repo".
+  ECS_GITOPS_REPO: ${{ vars.ECS_GITOPS_REPO }}
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  DEPLOY:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    environment: test
+    steps:
+      # On a closed PR the default ref is refs/pull/<n>/merge, the pre-merge
+      # synthetic commit. Check out the commit the merge actually produced on
+      # main so Taskfile and gitops logic run from merged code. The SHA is pinned
+      # rather than the branch name so a later merge cannot change what this run
+      # executes.
+      - name: Initialize repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # A merge can land without CI having pushed this image (admin bypass, a
+      # failed BUILD, a branch-protection gap). Fail before writing the gitops
+      # pointer rather than pointing test at an image that is not in ECR.
+      - name: Verify image exists in ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY_NAME" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            > /dev/null
+          echo "Image $ECR_REPOSITORY_NAME:$IMAGE_TAG found, deploying to $ENVIRONMENT."
+
+      # Posted only after the image is confirmed, so a deploy that is about to
+      # hard-fail never announces itself as started.
+      - name: In progress message
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: Number(process.env.PR_NUMBER),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `<b>TEST</b><br>Deployment started ...`,
+            });
+
+      # ECS_GITOPS_REPO is "owner/repo", but the app token's `repositories` input
+      # takes bare repo names (the owner is passed separately).
+      - name: Resolve gitops repo name
+        id: gitops-repo
+        run: echo "name=${ECS_GITOPS_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      # The CI bot credentials live in SSM, not in GitHub secrets. The AWS role
+      # (AWS_ROLE_ARN) stays a GitHub secret: it is needed to reach SSM at all.
+      - name: Load CI bot app id
+        uses: ./.github/actions/load-ssm-secret
+        with:
+          parameter: /github/shared/ci_bot_app_id
+          env-var: CI_BOT_APP_ID
+
+      - name: Load CI bot private key
+        uses: ./.github/actions/load-ssm-secret
+        with:
+          parameter: /github/shared/ci_bot_private_key
+          env-var: CI_BOT_PRIVATE_KEY
+
+      - name: Create gitops app token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ env.CI_BOT_APP_ID }}
+          private-key: ${{ env.CI_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.gitops-repo.outputs.name }}
+
+      - name: Checkout gitops repo
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.ECS_GITOPS_REPO }}
+          token: ${{ steps.app-token.outputs.token }}
+          path: ecs-gitops
+          ref: test
+
+      - name: Configure Git
+        working-directory: ecs-gitops
+        run: |
+          git config --local user.email "automation@most.dev"
+          git config --local user.name "Legacy Collect Deployment Automation"
+
+      - name: Write image tag and push
+        run: task gitops:deploy
+
+      - name: Message success
+        if: ${{ success() }}
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: Number(process.env.PR_NUMBER),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `<b>TEST</b> Deployment succeeded ✅<br>ECS rolls out the new image shortly.<br>${process.env.RUN_URL}`,
+            });
+
+      - name: Message failure
+        if: ${{ failure() }}
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: Number(process.env.PR_NUMBER),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `<b>TEST</b> Deployment failed ❌<br>${process.env.RUN_URL}`,
+            });

@@ -1,0 +1,90 @@
+name: Kiro PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches-ignore:
+      - acc
+      - prod
+
+permissions:
+  id-token: write
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: kiro-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  code-review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Install Kiro CLI
+        run: curl -fsSL https://cli.kiro.dev/install | bash
+
+      - name: Get PR changed files
+        run: task review:get-diff
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # The Kiro API key lives in SSM, exported as KIRO_API_KEY for the next steps.
+      - name: Load Kiro API key
+        uses: ./.github/actions/load-ssm-secret
+        with:
+          parameter: /github/shared/kiro_api_key
+          env-var: KIRO_API_KEY
+
+      - name: Run code review
+        run: task review:run
+
+      - name: Delete previous review comment
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            for (const comment of comments.data) {
+              if (comment.body.startsWith('## 🤖 Kiro Code Review')) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id,
+                });
+              }
+            }
+
+      - name: Post review comment on PR
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('kiro-review.md', 'utf8');
+            const now = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+            const body = `## 🤖 Kiro Code Review\n\n**Reviewed at:** ${now}\n\n${review}\n\n---\n*Automated review by [Kiro CLI headless mode](https://kiro.dev/docs/cli/headless/)*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });
