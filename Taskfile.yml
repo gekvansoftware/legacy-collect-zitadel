@@ -1,0 +1,167 @@
+version: "3"
+
+vars:
+  REVIEW_OUTPUT_FILE: kiro-review.md
+  IMAGE_TAG: '{{.IMAGE_TAG | default "latest"}}'
+  ECS_GITOPS_PATH: '{{.ECS_GITOPS_PATH | default "ecs-gitops"}}'
+  SERVICE_NAME: '{{.SERVICE_NAME}}'
+  ECR_REGISTRY: '{{.ECR_REGISTRY}}'
+  ENVIRONMENT: '{{.ENVIRONMENT | default "test"}}'
+  GITOPS_BRANCH: '{{.GITOPS_BRANCH | default .ENVIRONMENT}}'
+  ECR_REPOSITORY_NAME: '{{.ECR_REPOSITORY_NAME}}'
+  FULL_IMAGE: "{{.ECR_REGISTRY}}/{{.ECR_REPOSITORY_NAME}}:{{.IMAGE_TAG}}"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the Docker image
+    vars:
+      DOCKER_PLATFORM: '{{.DOCKER_PLATFORM | default "linux/amd64"}}'
+    cmds:
+      - docker build --platform={{.DOCKER_PLATFORM}} --no-cache -t {{.FULL_IMAGE}} .
+
+  push:
+    desc: Push the image to ECR
+    cmds:
+      - cmd: echo "Pushing {{.FULL_IMAGE}}"
+        silent: true
+      - docker push {{.FULL_IMAGE}}
+
+  pull:
+    desc: Pull the image from ECR
+    cmds:
+      - cmd: echo "Pulling {{.FULL_IMAGE}}"
+        silent: true
+      - docker pull {{.FULL_IMAGE}}
+
+  ecs:tag-update:
+    desc: Update version tag in environment JSON
+    vars:
+      FILE: '{{.ECS_GITOPS_PATH}}/configs/{{.SERVICE_NAME}}/vars/{{.ENVIRONMENT}}.json'
+    preconditions:
+      - sh: command -v jq
+        msg: "jq is not installed."
+    cmds:
+      - jq --arg tag "{{.IMAGE_TAG}}" '.tag = $tag' {{.FILE}} > temp.json && mv temp.json {{.FILE}}
+      - cmd: echo "Updated {{.FILE}} with tag {{.IMAGE_TAG}}"
+        silent: true
+
+  ecs:commit:
+    desc: Commit ECS gitops changes
+    dir: '{{.ECS_GITOPS_PATH}}'
+    preconditions:
+      - sh: command -v git
+        msg: "git is not installed."
+    cmds:
+      - git add .
+      - git diff --cached --quiet && echo "No changes to commit" || git commit -m "Deployment({{.ENVIRONMENT}})/({{.SERVICE_NAME}})/({{.IMAGE_TAG}})"
+      - git push origin {{.GITOPS_BRANCH}}
+
+  gitops:deploy:
+    desc: Deploy tag to Ecspresso manifests
+    cmds:
+      - task: ecs:tag-update
+      - task: ecs:commit
+
+  review:
+    desc: Run Kiro code review on changed files
+    cmds:
+      - task: review:get-diff
+      - task: review:run
+
+  review:get-diff:
+    desc: Get changed files and a real unified diff compared to the base branch (includes uncommitted and untracked files)
+    vars:
+      BASE_BRANCH: '{{.BASE_BRANCH | default "origin/main"}}'
+    cmds:
+      - |
+        # Fetch the SAME ref the guard validates so overriding BASE_BRANCH does
+        # not fetch the wrong branch. BASE_BRANCH is of the form <remote>/<branch>
+        # (default origin/main); derive both parts for the fetch. Keep the
+        # 2>/dev/null || true tolerance so a fetch failure lets the guard below be
+        # the thing that hard-fails.
+        base="{{.BASE_BRANCH}}"
+        case "$base" in
+          */*) remote="${base%%/*}"; branch="${base#*/}"; git fetch "$remote" "$branch" --quiet 2>/dev/null || true ;;
+          *)   git fetch --quiet 2>/dev/null || true ;;  # bare ref: best-effort default fetch
+        esac
+      - git rev-parse --verify --quiet "{{.BASE_BRANCH}}" >/dev/null || { echo "Base ref {{.BASE_BRANCH}} not found after fetch; check the ref name and network access" >&2; exit 1; }
+      - |
+        # Resolve the merge-base (common ancestor of the base branch and HEAD) ONCE
+        # and use it for BOTH the file list and the patch so they agree on scope.
+        # Diffing merge-base -> working tree keeps commits landed on the base branch
+        # since the fork point from showing up as spurious deletions. Fall back to the
+        # base ref tip (with a warning) if there is no common ancestor so the task
+        # still runs.
+        MERGE_BASE=$(git merge-base "{{.BASE_BRANCH}}" HEAD 2>/dev/null) || {
+          echo "review:get-diff: no merge-base with {{.BASE_BRANCH}}; falling back to base tip" >&2
+          MERGE_BASE="{{.BASE_BRANCH}}"
+        }
+        # 1) changed-files list (merge-base -> working tree, tracked + untracked)
+        {
+          git diff --name-only "$MERGE_BASE"
+          git ls-files --others --exclude-standard
+        } | sort -u | tr '\n' ' ' > .changed-files.txt
+        # 2) unified diff = the review scope anchor (actual changed LINES, adds + dels).
+        #    A single merge-base -> working-tree diff covers committed + staged +
+        #    unstaged for tracked files (each tracked file appears once). Untracked
+        #    files never appear in a diff-vs-base, so surface their content as added
+        #    lines; binary files are skipped (logged to stderr) - the empty grep
+        #    pattern '' matches any non-binary file (including empty text files).
+        #    NOTE: this patch is a REVIEW-SCOPE ANCHOR only and is never git-applied.
+        {
+          git diff "$MERGE_BASE"
+          git ls-files --others --exclude-standard | while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if grep -Iq '' "$f" 2>/dev/null; then
+              git diff --no-index /dev/null "$f" || true
+            else
+              echo "review:get-diff: skipping binary untracked file: $f" >&2
+            fi
+          done
+        } > .review-diff.patch
+    generates:
+      - .changed-files.txt
+      - .review-diff.patch
+
+  review:run:
+    desc: Run Kiro CLI code review on the changed files
+    vars:
+      TRUST_TOOLS: '{{.TRUST_TOOLS | default "read,write,grep,glob,code"}}'
+    env:
+      KIRO_LOG_NO_COLOR: "1"
+      NO_COLOR: "1"
+      TERM: dumb
+    preconditions:
+      - sh: command -v kiro-cli
+        msg: "kiro-cli is not installed. Install it with: curl -fsSL https://cli.kiro.dev/install | bash"
+      - sh: test -f .changed-files.txt
+        msg: "No .changed-files.txt found. Run 'task review:get-diff' first."
+      - sh: test -s .review-diff.patch
+        msg: "No reviewable diff in .review-diff.patch (empty). Either there are no changes vs the base, or all changes are non-text files skipped by review:get-diff - check .changed-files.txt."
+    cmds:
+      - |
+        CHANGED_FILES=$(cat .changed-files.txt)
+        kiro-cli chat \
+            --agent code-reviewer \
+            --no-interactive \
+            --trust-tools={{.TRUST_TOOLS}} \
+            "Review this pull request per your agent instructions. The review scope anchor is \
+             the unified diff in '.review-diff.patch' at the workspace root; the list of touched \
+             files is in '.changed-files.txt' (for reference). Changed files: ${CHANGED_FILES}. \
+             Write your findings to kiro-review.md."
+        if [ ! -s {{.REVIEW_OUTPUT_FILE}} ]; then
+          echo "ERROR: kiro-review.md was not created or is empty" >&2
+          exit 1
+        fi
+    generates:
+      - "{{.REVIEW_OUTPUT_FILE}}"
+
+  review:cleanup:
+    desc: Remove temporary review files
+    cmds:
+      - rm -f .changed-files.txt .review-diff.patch {{.REVIEW_OUTPUT_FILE}}
