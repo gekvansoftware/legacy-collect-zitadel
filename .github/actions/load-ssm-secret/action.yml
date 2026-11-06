@@ -1,0 +1,46 @@
+name: Load SSM secret
+description: >
+  Read one SSM parameter (decrypted) with the AWS credentials already configured
+  in the job, mask it in the logs and export it as an environment variable for
+  the following steps. Run aws-actions/configure-aws-credentials first.
+
+inputs:
+  parameter:
+    description: SSM parameter name, e.g. /github/shared/ci_bot_app_id
+    required: true
+  env-var:
+    description: Environment variable to export the value as
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Load ${{ inputs.parameter }}
+      shell: bash
+      env:
+        PARAMETER: ${{ inputs.parameter }}
+        ENV_VAR: ${{ inputs.env-var }}
+      run: |
+        set -euo pipefail
+
+        value="$(aws ssm get-parameter \
+          --name "$PARAMETER" \
+          --with-decryption \
+          --query Parameter.Value \
+          --output text)"
+
+        # Mask line by line: a multi-line value (PEM key) is only masked in full
+        # when every one of its lines is registered.
+        while IFS= read -r line; do
+          if [ -n "$line" ]; then
+            echo "::add-mask::$line"
+          fi
+        done <<< "$value"
+
+        # Random delimiter so a multi-line value cannot terminate the block early.
+        delimiter="ghadelimiter_$(openssl rand -hex 16)"
+        {
+          echo "${ENV_VAR}<<${delimiter}"
+          echo "$value"
+          echo "${delimiter}"
+        } >> "$GITHUB_ENV"

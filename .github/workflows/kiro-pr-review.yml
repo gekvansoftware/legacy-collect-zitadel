@@ -8,6 +8,7 @@ on:
       - prod
 
 permissions:
+  id-token: write
   pull-requests: write
   contents: read
 
@@ -37,9 +38,20 @@ jobs:
       - name: Get PR changed files
         run: task review:get-diff
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # The Kiro API key lives in SSM, exported as KIRO_API_KEY for the next steps.
+      - name: Load Kiro API key
+        uses: ./.github/actions/load-ssm-secret
+        with:
+          parameter: /github/shared/kiro_api_key
+          env-var: KIRO_API_KEY
+
       - name: Run code review
-        env:
-          KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
         run: task review:run
 
       - name: Delete previous review comment
