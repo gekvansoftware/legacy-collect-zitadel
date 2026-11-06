@@ -16,6 +16,10 @@ env:
   SERVICE_NAME: ${{ vars.SERVICE_NAME }}
   # Deploy the exact image CI built on this PR. ci.yml tags by the PR head SHA,
   # so reuse that tag rather than the merge commit (which has no image).
+  # CI builds the synthetic merge ref (head + main), not the bare PR branch.
+  # That equals the real merge result only because branch protection on main
+  # requires branches to be up to date before merging. Do not disable that rule
+  # (or merge with an admin bypass) without switching this to build-on-merge.
   IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
   ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
   ECS_GITOPS_PATH: ecs-gitops
