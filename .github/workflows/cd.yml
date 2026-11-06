@@ -37,8 +37,15 @@ jobs:
     runs-on: ubuntu-24.04
     environment: test
     steps:
+      # On a closed PR the default ref is refs/pull/<n>/merge, the pre-merge
+      # synthetic commit. Check out the commit the merge actually produced on
+      # main so Taskfile and gitops logic run from merged code. The SHA is pinned
+      # rather than the branch name so a later merge cannot change what this run
+      # executes.
       - name: Initialize repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Install Task
         uses: arduino/setup-task@v2
