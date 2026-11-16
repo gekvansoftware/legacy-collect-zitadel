@@ -2,14 +2,14 @@ name: CI Build on Pull Request
 
 on:
   pull_request:
-    branches: [ main, develop ] # develop is temporary until we can merge this to main
+    branches: [ main ]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:
-  ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME }}
+  ECR_REPOSITORY_NAME: legacy-collect-zitadel
   IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
 
 permissions:
@@ -20,16 +20,16 @@ permissions:
 jobs:
   BUILD:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Initialize repository
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Install Task
         uses: arduino/setup-task@v2
         with:
           version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
